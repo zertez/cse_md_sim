@@ -1,0 +1,38 @@
+[project]
+authors = [{name = "zertez", email = "marcus.d.figenschou@protonmail.com"}]
+dependencies = []
+name = "cse_md_sim"
+requires-python = ">= 3.11"
+version = "0.1.0"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[tool.pixi.pypi-dependencies]
+cse_md_sim = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+
+[tool.pixi.dependencies]
+openmm = ">=8.5.2,<9"
+pdbfixer = ">=1.12,<2"
+mdtraj = ">=1.11.1,<2"
+pypdf = ">=6.14.2,<7"
+openff-toolkit = ">=0.18.1,<0.19"
+openmmforcefields = ">=0.16.0,<0.17"
+rdkit = ">=2025.9.5,<2026"
+cuda-version = ">=12.8,<13"
+openmm-ml = ">=1.2,<2"
+openmm-torch = ">=1.4,<2"
+torchani = ">=2.2,<3"
+plumed = ">=2.10.0,<3"
+tqdm = ">=4.68.4,<5"
+biopython = ">=1.87,<2"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

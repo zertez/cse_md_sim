@@ -1,0 +1,50 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# OS junk
+.DS_Store
+**/.DS_Store
+
+# Python caches
+__pycache__/
+*.pyc
+
+# --- Simulation outputs (regenerable) -------------------------------------
+data/trajectories/
+data/analysis/
+data/output/
+*.dcd
+*.log
+*.chk
+
+# Loose root-level outputs from earlier runs
+/tetramer_solvated.pdb
+/tetramer_protein_only.pdb
+/tetramer_protein_only.dcd
+/tetramer_trajectory.dcd
+/lysozyme_solvated.pdb
+/trajectory.dcd
+/cse_cofactors.png
+/cse_cofactors_frame100.png
+
+# Build intermediates in data/topologies (keep only inputs + prebuilt holo system)
+data/topologies/*minimized.pdb
+data/topologies/cse_production.dcd
+data/topologies/cse_llp_dry.*
+data/topologies/cse_llp_solv.pdb
+data/topologies/fixed_protein_plp.pdb
+data/topologies/2nmp_fixed.pdb
+data/topologies/clean_input.pdb
+data/protein_only.pdb
+
+# --- Not part of the code repo --------------------------------------------
+# Copyrighted reference paper + literature trajectories: keep local only
+plp_trajectories/
+# Blender visualization working files
+cse_blender/
+# Derived export (verify before removing): cse_tetramer.cif
+cse_tetramer.cif
+
+# Local RunPod credentials
+scripts/pull_and_shutdown.env
