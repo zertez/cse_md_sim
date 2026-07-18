@@ -35,20 +35,18 @@ tqdm = ">=4.68.4,<5"
 biopython = ">=1.87,<2"
 
 # CUDA for Linux (Blackwell / RTX 5090)
+[tool.pixi.feature.cuda]
+platforms = ["linux-64"]
+
 [tool.pixi.feature.cuda.dependencies]
 cuda-version = "13.*"
 
 [tool.pixi.feature.cuda.system-requirements]
 cuda = "13"
 
-[tool.pixi.feature.cuda.platforms]
-platforms = ["linux-64"]
-
-# Default environment (macOS + Linux CPU)
 [tool.pixi.environments]
-default = ["default"]   # base dependencies only
-
-# GPU environment (Linux only)
+# default is implicit (base deps only) — works on macOS + Linux CPU
+# GPU environment (Linux only): run with `pixi run -e gpu ...`
 gpu = ["cuda"]
 
 [tool.hatch.build.targets.wheel]
