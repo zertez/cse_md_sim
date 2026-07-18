@@ -1,50 +1,58 @@
 """
 enhanced_sampling.py
 
-Modular enhanced sampling module using PLUMED + OPES.
-Designed to be reusable across enzymes (just change the CV in plumed.dat).
+Enhanced sampling with PLUMED + OPES on RunPod.
+This version loads from equilibrated.pdb (much more reliable).
 """
 
 from openmm import *
 from openmm.app import *
 from openmm import unit
 import config
-from system_builder import build_system
 from pathlib import Path
-import subprocess
 
 
 def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
     print("=== Starting Enhanced Sampling (OPES) ===")
 
     output_dir = config.OUTPUT_DIR
-    checkpoint_file = output_dir / "equilibrated.chk"
+    equilibrated_pdb = output_dir / "equilibrated.pdb"
 
-    if not checkpoint_file.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_file}")
+    if not equilibrated_pdb.exists():
+        raise FileNotFoundError(f"{equilibrated_pdb} not found!")
 
-    # Rebuild system
-    modeller, system, topology, positions = build_system()
+    print(f"Loading equilibrated structure from: {equilibrated_pdb}")
+    pdb = PDBFile(str(equilibrated_pdb))
 
-    # Add barostat
+    # Build system
+    forcefield = ForceField(*config.FORCEFIELD_FILES)
+    modeller = Modeller(pdb.topology, pdb.positions)
+
+    system = forcefield.createSystem(
+        modeller.topology,
+        nonbondedMethod=PME,
+        nonbondedCutoff=1.0 * unit.nanometer,
+        constraints=HBonds,
+        rigidWater=True,
+    )
     system.addForce(MonteCarloBarostat(config.PRESSURE, config.TEMPERATURE))
 
     integrator = LangevinMiddleIntegrator(config.TEMPERATURE, 1.0 / unit.picosecond, config.TIMESTEP)
 
-    simulation = Simulation(topology, system, integrator)
-    simulation.loadCheckpoint(str(checkpoint_file))
+    simulation = Simulation(modeller.topology, system, integrator)
+    simulation.context.setPositions(pdb.positions)
 
-    # === PLUMED Integration ===
-    # We use PlumedForce (requires openmm-plumed or compatible setup)
+    # === PLUMED ===
+    plumed_path = Path("scripts") / plumed_file
     try:
         from openmmplumed import PlumedForce
 
-        plumed_force = PlumedForce(str(Path("scripts") / plumed_file))
+        plumed_force = PlumedForce(str(plumed_path))
         system.addForce(plumed_force)
-        print(f"PLUMED loaded with: {plumed_file}")
-    except ImportError:
-        print("Warning: openmmplumed not found. Make sure PLUMED is properly linked with OpenMM.")
-        print("Falling back to running without bias for now.")
+        print(f"PLUMED loaded: {plumed_path}")
+    except Exception as e:
+        print(f"PLUMED failed: {e}")
+        return
 
     # Reporters
     simulation.reporters.append(DCDReporter(str(output_dir / "enhanced.dcd"), 5000))
@@ -63,15 +71,18 @@ def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
         )
     )
 
-    # Run biased simulation
-    steps = 500000  # 1 ns for now (you can increase later)
-    print(f"Running enhanced sampling for {steps * config.TIMESTEP}...")
+    # Run
+    steps = 500000  # 1 ns — increase this later (e.g. 5_000_000)
+    print(f"Running {steps} steps with OPES bias...")
     simulation.step(steps)
     print("Enhanced sampling finished.")
 
-    # Save final checkpoint
+    # Save results
     simulation.saveCheckpoint(str(output_dir / "enhanced.chk"))
-    print(f"Enhanced checkpoint saved.")
+    final_positions = simulation.context.getState(getPositions=True).getPositions()
+    PDBFile.writeFile(modeller.topology, final_positions, open(output_dir / "enhanced_final.pdb", "w"))
+
+    print(f"\n Done. Results saved in: {output_dir}")
 
 
 if __name__ == "__main__":
