@@ -26,7 +26,6 @@ pypdf = ">=6.14.2,<7"
 openff-toolkit = ">=0.16.0,<0.18.0"
 openmmforcefields = ">=0.14.0,<0.15.0"
 rdkit = ">=2025.9.5,<2026"
-cuda-version = ">=12.4"
 openmm-ml = ">=1.2,<2"
 openmm-torch = ">=1.4,<2"
 torchani = ">=2.2,<3"
@@ -34,6 +33,23 @@ plumed = ">=2.9,<2.10"
 openmm-plumed = ">=2.1,<2.2"
 tqdm = ">=4.68.4,<5"
 biopython = ">=1.87,<2"
+
+# CUDA for Linux (Blackwell / RTX 5090)
+[tool.pixi.feature.cuda.dependencies]
+cuda-version = "13.*"
+
+[tool.pixi.feature.cuda.system-requirements]
+cuda = "13"
+
+[tool.pixi.feature.cuda.platforms]
+platforms = ["linux-64"]
+
+# Default environment (macOS + Linux CPU)
+[tool.pixi.environments]
+default = ["default"]   # base dependencies only
+
+# GPU environment (Linux only)
+gpu = ["cuda"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
