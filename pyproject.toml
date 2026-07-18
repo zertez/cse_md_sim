@@ -34,12 +34,16 @@ openmm-plumed = ">=2.1,<2.2"
 tqdm = ">=4.68.4,<5"
 biopython = ">=1.87,<2"
 
-# CUDA for Linux (Blackwell / RTX 5090)
-[tool.pixi.feature.cuda]
-platforms = [{ platform = "linux-64", cuda = "13" }]
+# CUDA 13 for Linux (Blackwell / RTX 5090)
+# Pin to the 13.0 minor: RunPod's driver (580.x) exposes CUDA 13.0, and nvrtc
+# from a newer minor (13.3) emits PTX the driver can't load
+# (CUDA_ERROR_UNSUPPORTED_PTX_VERSION). Keep nvrtc on 13.0 to match the driver.
+[tool.pixi.feature.cuda.system-requirements]
+cuda = "13"
 
 [tool.pixi.feature.cuda.dependencies]
 cuda-version = "13.0.*"
+cuda-nvrtc = "13.0.*"
 
 [tool.pixi.environments]
 # default is implicit (base deps only) — works on macOS + Linux CPU
