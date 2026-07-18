@@ -11,7 +11,11 @@ requires = ["hatchling"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["osx-arm64", "linux-64"]
+platforms = [
+  "osx-arm64",
+  "linux-64",
+  { platform = "linux-64", cuda = "13", name = "linux-64-cuda" }
+]
 
 [tool.pixi.pypi-dependencies]
 cse_md_sim = { path = ".", editable = true }
@@ -38,6 +42,9 @@ biopython = ">=1.87,<2"
 # Pin to the 13.0 minor: RunPod's driver (580.x) exposes CUDA 13.0, and nvrtc
 # from a newer minor (13.3) emits PTX the driver can't load
 # (CUDA_ERROR_UNSUPPORTED_PTX_VERSION). Keep nvrtc on 13.0 to match the driver.
+[tool.pixi.feature.cuda]
+platforms = ["linux-64-cuda"]
+
 [tool.pixi.feature.cuda.system-requirements]
 cuda = "13"
 
