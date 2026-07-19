@@ -1,12 +1,20 @@
-# scripts/plumed.dat
-# Simple active-site CV for lysozyme (Glu35 - Asp52 distance)
-# This mimics the "active site rearrangement" sampling in the paper
+# =============================================
+# PLUMED for Lysozyme - Active Site Sampling
+# =============================================
 
-# Define collective variable: distance between catalytic residues
-d1: DISTANCE ATOMS=561,852   # Adjust atom numbers for Glu35 Cδ and Asp52 Cγ
+# Global fold CV
+rmsd: RMSD REFERENCE=equilibrated.pdb TYPE=OPTIMAL
 
-# OPES bias on d1
-opes: OPES ARG=d1 PACE=500 BARRIER=20 SIGMA=0.1
+# Key catalytic distance: Glu35 CD - Asp52 CG
+d_active: DISTANCE ATOMS=540,778
 
-# Print CVs
-PRINT ARG=d1,opes.* FILE=COLVAR STRIDE=1000
+# Optional second CV (e.g. another important distance or angle)
+# You can add more later
+
+# OPES bias
+opes: OPES_METAD ARG=rmsd,d_active PACE=500 BARRIER=35 TEMP=300
+
+# Output
+PRINT ARG=rmsd,d_active,opes.* FILE=COLVAR STRIDE=500
+
+RESTART
