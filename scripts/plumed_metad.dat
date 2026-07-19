@@ -1,0 +1,26 @@
+# =============================================
+# PLUMED for Lysozyme - Active Site Sampling
+#
+# Well-tempered metadynamics fallback for PLUMED builds without the
+# optional `opes` module. METAD lives in the core `bias` module and is
+# always available. Physically equivalent intent to plumed.dat: the
+# BIASFACTOR below is chosen to match its BARRIER=35 kJ/mol.
+#
+# @TOKEN@ placeholders are substituted with absolute paths by
+# enhanced_sampling.resolve_plumed_script().
+# =============================================
+
+# Global fold CV - backbone RMSD to the equilibrated structure
+rmsd: RMSD REFERENCE=@REFERENCE@ TYPE=OPTIMAL
+
+# Key catalytic distance: Glu35 CD - Asp52 CG
+d_active: DISTANCE ATOMS=540,778
+
+# Well-tempered metadynamics bias.
+# BIASFACTOR ~ (barrier + kT)/kT = (35 + 2.5)/2.5 = 15 at 300 K.
+# SIGMA should be roughly the unbiased fluctuation of each CV; check these
+# against the plain production run before trusting the free energy.
+metad: METAD ARG=rmsd,d_active PACE=500 HEIGHT=1.2 SIGMA=0.01,0.02 BIASFACTOR=15 TEMP=300 FILE=@KERNELS@
+
+# Output
+PRINT ARG=rmsd,d_active,metad.* FILE=@COLVAR@ STRIDE=500
