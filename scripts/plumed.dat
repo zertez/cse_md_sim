@@ -1,20 +1,22 @@
 # =============================================
 # PLUMED for Lysozyme - Active Site Sampling
+#
+# @TOKEN@ placeholders are substituted with absolute paths by
+# enhanced_sampling.resolve_plumed_script(). Do not replace them with
+# literal relative paths: PLUMED resolves those against the process
+# working directory, not against this file.
 # =============================================
 
-# Global fold CV
-rmsd: RMSD REFERENCE=equilibrated.pdb TYPE=OPTIMAL
+# Global fold CV - backbone RMSD to the equilibrated structure
+rmsd: RMSD REFERENCE=@REFERENCE@ TYPE=OPTIMAL
 
 # Key catalytic distance: Glu35 CD - Asp52 CG
+# 1-based indices into the full solvated system, verified against
+# equilibrated.pdb. Re-derive these if the system composition changes.
 d_active: DISTANCE ATOMS=540,778
 
-# Optional second CV (e.g. another important distance or angle)
-# You can add more later
-
 # OPES bias
-opes: OPES_METAD ARG=rmsd,d_active PACE=500 BARRIER=35 TEMP=300
+opes: OPES_METAD ARG=rmsd,d_active PACE=500 BARRIER=35 TEMP=300 FILE=@KERNELS@ STATE_WFILE=@STATE@ STATE_WSTRIDE=10000
 
 # Output
-PRINT ARG=rmsd,d_active,opes.* FILE=COLVAR STRIDE=500
-
-RESTART
+PRINT ARG=rmsd,d_active,opes.* FILE=@COLVAR@ STRIDE=500
