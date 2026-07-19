@@ -2,7 +2,7 @@
 enhanced_sampling.py
 
 Enhanced sampling using PLUMED + OPES.
-Modular and reusable across enzymes.
+Fixed version with absolute paths and better debugging.
 """
 
 from openmm import *
@@ -11,6 +11,7 @@ from openmm import unit
 import config
 from system_builder import build_system
 from pathlib import Path
+import os
 
 
 def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
@@ -31,20 +32,23 @@ def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
     simulation = Simulation(topology, system, integrator)
     simulation.loadCheckpoint(str(checkpoint_file))
 
-    # === Load PLUMED with full path (fixed) ===
-    plumed_path = Path("/workspace/cse_md_sim/scripts/plumed.dat")
+    # === Load PLUMED with absolute path ===
+    plumed_path = Path("/workspace/cse_md_sim/scripts/plumed.dat").absolute()
     print(f"Using PLUMED file: {plumed_path}")
     print(f"File exists: {plumed_path.exists()}")
+
+    # Change working directory so COLVAR is written in the right place
+    os.chdir("/workspace/cse_md_sim")
+    print(f"Working directory set to: {os.getcwd()}")
 
     try:
         from openmmplumed import PlumedForce
 
         plumed_force = PlumedForce(str(plumed_path))
         system.addForce(plumed_force)
-        print(f"PLUMED successfully loaded: {plumed_path}")
+        print("✅ PLUMED successfully loaded!")
     except ImportError:
         print("ERROR: openmm-plumed is not installed.")
-        print("Please run: pixi add openmm-plumed")
         return
     except Exception as e:
         print(f"Failed to load PLUMED: {e}")
@@ -68,7 +72,7 @@ def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
     )
 
     # Run
-    steps = 500000  # 1 ns (increase later)
+    steps = 500000
     print(f"Running {steps} steps with OPES bias...")
     simulation.step(steps)
     print("Enhanced sampling finished.")
