@@ -19,19 +19,19 @@ cse_md_sim = { path = ".", editable = true }
 [tool.pixi.tasks]
 
 [tool.pixi.dependencies]
-openmm = ">=8.5.2,<9"
+openmm = ">=8.4,<8.5"
 pdbfixer = ">=1.12,<2"
 mdtraj = ">=1.11.1,<2"
 pypdf = ">=6.14.2,<7"
 openff-toolkit = ">=0.18.1,<0.19"
-openmmforcefields = ">=0.16.0,<0.17"
+openmmforcefields = ">=0.15.1,<0.16"
 rdkit = ">=2025.9.5,<2026"
 cuda-version = ">=12.8,<13"
 openmm-ml = ">=1.2,<2"
 openmm-torch = ">=1.4,<2"
 openmm-plumed = "*"
 torchani = ">=2.2,<3"
-plumed = ">=2.10.0,<3"
+plumed = ">=2.9,<2.10"
 tqdm = ">=4.68.4,<5"
 biopython = ">=1.87,<2"
 
