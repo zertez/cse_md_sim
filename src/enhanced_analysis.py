@@ -1,103 +1,82 @@
 """
-enhanced_analysis.py
+enhanced_sampling.py
 
-Analysis module specifically for enhanced sampling trajectories (OPES).
-Reusable and focused on collective variables + reweighting.
+Enhanced sampling using PLUMED + OPES.
+Modular and reusable across enzymes.
 """
 
-import mdtraj as md
-import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-from pathlib import Path
+from openmm import *
+from openmm.app import *
+from openmm import unit
 import config
+from system_builder import build_system
+from pathlib import Path
 
 
-def run_enhanced_analysis():
+def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
+    print("=== Starting Enhanced Sampling with OPES ===")
+
     output_dir = config.OUTPUT_DIR
-    traj_file = output_dir / "enhanced.dcd"
-    top_file = output_dir / "equilibrated.pdb"
-    state_csv = output_dir / "enhanced_state.csv"
-    colvar_file = output_dir / "COLVAR"  # from PLUMED
+    checkpoint_file = output_dir / "equilibrated.chk"
 
-    print(f"Running enhanced sampling analysis for: {config.PROTEIN_NAME}")
+    if not checkpoint_file.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_file}")
 
-    # Load trajectory
-    if traj_file.exists():
-        traj = md.load(str(traj_file), top=str(top_file))
-        print(f"Enhanced Trajectory: {traj.n_frames} frames")
-    else:
-        print("Enhanced trajectory not found. Running basic analysis on production instead.")
-        traj_file = output_dir / "production.dcd"
-        traj = md.load(str(traj_file), top=str(top_file))
+    # Build system
+    modeller, system, topology, positions = build_system()
+    system.addForce(MonteCarloBarostat(config.PRESSURE, config.TEMPERATURE))
 
-    # RMSD
-    rmsd = md.rmsd(traj, traj[0], atom_indices=traj.topology.select("backbone"))
-    print(f"Mean RMSD: {np.mean(rmsd) * 10:.2f} Å")
+    integrator = LangevinMiddleIntegrator(config.TEMPERATURE, 1.0 / unit.picosecond, config.TIMESTEP)
 
-    # Radius of gyration
-    rg = md.compute_rg(traj)
+    simulation = Simulation(topology, system, integrator)
+    simulation.loadCheckpoint(str(checkpoint_file))
 
-    # Load state data
-    df = pd.read_csv(state_csv) if state_csv.exists() else None
+    # === Load PLUMED with full path (fixed) ===
+    plumed_path = Path("/workspace/cse_md_sim/scripts/plumed.dat")
+    print(f"Using PLUMED file: {plumed_path}")
+    print(f"File exists: {plumed_path.exists()}")
 
-    # Try to load PLUMED COLVAR if available
-    if colvar_file.exists():
-        try:
-            colvar = pd.read_csv(colvar_file, delim_whitespace=True, comment="#")
-            print(f"Loaded PLUMED COLVAR with {len(colvar)} entries")
-        except:
-            colvar = None
-    else:
-        colvar = None
+    try:
+        from openmmplumed import PlumedForce
 
-    # === Plots ===
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        plumed_force = PlumedForce(str(plumed_path))
+        system.addForce(plumed_force)
+        print(f"PLUMED successfully loaded: {plumed_path}")
+    except ImportError:
+        print("ERROR: openmm-plumed is not installed.")
+        print("Please run: pixi add openmm-plumed")
+        return
+    except Exception as e:
+        print(f"Failed to load PLUMED: {e}")
+        return
 
-    axes[0, 0].plot(rmsd * 10)
-    axes[0, 0].set_title(f"RMSD - Enhanced {config.PROTEIN_NAME}")
-    axes[0, 0].set_xlabel("Frame")
-    axes[0, 0].set_ylabel("RMSD (Å)")
-    axes[0, 0].grid(True)
+    # Reporters
+    simulation.reporters.append(DCDReporter(str(output_dir / "enhanced.dcd"), 5000))
+    simulation.reporters.append(
+        StateDataReporter(
+            str(output_dir / "enhanced_state.csv"),
+            5000,
+            step=True,
+            time=True,
+            potentialEnergy=True,
+            temperature=True,
+            volume=True,
+            density=True,
+            speed=True,
+            separator=",",
+        )
+    )
 
-    axes[0, 1].plot(rg * 10)
-    axes[0, 1].set_title("Radius of Gyration")
-    axes[0, 1].set_xlabel("Frame")
-    axes[0, 1].set_ylabel("Rg (Å)")
-    axes[0, 1].grid(True)
+    # Run
+    steps = 500000  # 1 ns (increase later)
+    print(f"Running {steps} steps with OPES bias...")
+    simulation.step(steps)
+    print("Enhanced sampling finished.")
 
-    if df is not None and "Temperature (K)" in df.columns:
-        axes[1, 0].plot(df["Temperature (K)"])
-        axes[1, 0].axhline(300, color="red", linestyle="--")
-        axes[1, 0].set_title("Temperature")
-        axes[1, 0].set_xlabel("Frame")
-        axes[1, 0].set_ylabel("K")
-        axes[1, 0].grid(True)
-
-    # Plot CV from COLVAR if available
-    if colvar is not None and len(colvar.columns) > 1:
-        cv_col = colvar.columns[1]  # usually the first CV
-        axes[1, 1].plot(colvar[cv_col])
-        axes[1, 1].set_title(f"Collective Variable: {cv_col}")
-        axes[1, 1].set_xlabel("Frame")
-        axes[1, 1].set_ylabel(cv_col)
-        axes[1, 1].grid(True)
-    else:
-        axes[1, 1].text(0.5, 0.5, "No COLVAR CV found", ha="center")
-
-    plt.tight_layout()
-    plot_file = output_dir / f"{config.PROTEIN_NAME}_enhanced_analysis.png"
-    plt.savefig(plot_file, dpi=300)
-    print(f"Enhanced analysis plots saved: {plot_file}")
-
-    # Save representative frame from enhanced traj
-    if "traj" in locals():
-        min_frame = np.argmin(rmsd)
-        traj[min_frame].save_pdb(str(output_dir / f"{config.PROTEIN_NAME}_enhanced_representative.pdb"))
-        print(f"Representative enhanced structure saved.")
-
-    print("=== Enhanced Analysis completed ===")
+    # Save checkpoint
+    simulation.saveCheckpoint(str(output_dir / "enhanced.chk"))
+    print(f"Enhanced checkpoint saved to {output_dir / 'enhanced.chk'}")
 
 
 if __name__ == "__main__":
-    run_enhanced_analysis()
+    run_enhanced_sampling()
