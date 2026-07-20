@@ -9,9 +9,9 @@ d_active: DISTANCE ATOMS=540,778
 
 # Active-site hydration: number of water oxygens coordinating the dyad.
 # @WATER_O@ is substituted with the comma-separated water-oxygen indices
-# by water_oxygen_indices() in enhanced_sampling.py. D_MAX enables a
-# neighbour list so the large GROUPB stays cheap.
-wat: COORDINATION GROUPA=540,778 GROUPB=@WATER_O@ R_0=0.35 NN=6 MM=12 D_MAX=0.6
+# by water_oxygen_indices() in enhanced_sampling.py. NLIST keeps the large
+# GROUPB cheap; D_MAX lives inside SWITCH and truncates the switch cleanly.
+wat: COORDINATION GROUPA=540,778 GROUPB=@WATER_O@ SWITCH={RATIONAL R_0=0.35 NN=6 MM=12 D_MAX=0.6} NLIST NL_CUTOFF=0.8 NL_STRIDE=20
 
 # Bias BOTH CVs (2D OPES). Adaptive kernels, 35 kJ/mol barrier as before.
 opes: OPES_METAD ARG=d_active,wat PACE=500 BARRIER=35 TEMP=300 FILE=@KERNELS@ STATE_WFILE=@STATE@ STATE_WSTRIDE=10000
