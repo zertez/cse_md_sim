@@ -21,17 +21,64 @@ from enhanced_fes2d import read_colvar, reweight, fes_2d
 
 
 def _fine_grid(xc, yc, F, ceiling, upsample):
-    """Upsample the (masked) FES onto a fine grid for a smooth shape."""
+    """Upsample the FES onto a fine grid, filling unvisited regions smoothly."""
     sampled = np.isfinite(F)
+
+    # Smoothly cap data at the ceiling
     Ffill = np.where(sampled, np.minimum(F, ceiling), ceiling)
+
+    # We use linear interpolation across the whole area so the edges
+    # blend smoothly out to the ceiling instead of generating NaN drop-offs.
     fint = RegularGridInterpolator((yc, xc), Ffill, method="linear", bounds_error=False, fill_value=ceiling)
-    mint = RegularGridInterpolator((yc, xc), sampled.astype(float), method="linear", bounds_error=False, fill_value=0.0)
+
     xf = np.linspace(xc.min(), xc.max(), len(xc) * upsample)
     yf = np.linspace(yc.min(), yc.max(), len(yc) * upsample)
     XX, YY = np.meshgrid(xf, yf)
+
     Z = np.clip(fint((YY, XX)), 0.0, ceiling)
-    Z = np.where(mint((YY, XX)) >= 0.5, Z, np.nan)  # Clean gaps outside sampled region
     return XX, YY, Z
+
+
+def landscape_mpl(xc, yc, F, out_png, elev=25, azim=-50, ceiling=25.0, upsample=8, invert=True):
+    """
+    Renders a clean, continuous 3D landscape that rolls smoothly down to the base
+    without jagged NaN clipping spikes.
+    """
+    XX, YY, Z = _fine_grid(xc, yc, F, ceiling, upsample)
+
+    # Invert: Lowest energy states (basins) become the highest peaks
+    Zplot = (ceiling - Z) if invert else Z
+
+    fig = plt.figure(figsize=(11, 8))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Color mapping running smoothly up the updated Z-axis heights
+    norm = plt.Normalize(vmin=np.nanmin(Zplot), vmax=np.nanmax(Zplot))
+    colors = plt.cm.turbo(norm(Zplot))
+
+    # Render without mesh grid lines
+    ax.plot_surface(
+        XX, YY, Zplot, facecolors=colors, rstride=1, cstride=1, linewidth=0, antialiased=True, shade=True, alpha=0.95
+    )
+
+    # Completely strip background grid boxes and numbers
+    ax.axis("off")
+    ax.set_facecolor("none")
+    fig.patch.set_alpha(0.0)
+
+    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+
+    # Set camera perspective orientation
+    ax.view_init(elev=elev, azim=azim)
+
+    # Flatten out the aspect scaling slightly so it stretches like rolling terrain
+    ax.set_box_aspect((1, 1, 0.35))
+
+    fig.savefig(out_png, dpi=300, bbox_inches="tight", transparent=True)
+    plt.close(fig)
+    print(f"✓ Saved updated landscape configuration to {out_png.name}")
 
 
 def landscape_mpl(xc, yc, F, out_png, elev=20, azim=-55, ceiling=25.0, upsample=8, invert=True):
