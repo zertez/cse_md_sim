@@ -40,6 +40,7 @@ eigen = ">=5.0.1,<6"
 fftw = ">=3.3.11,<4"
 gsl = ">=2.7,<3"
 pkg-config = ">=0.29.2,<0.30"
+plotly = ">=6.9.0,<7"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
