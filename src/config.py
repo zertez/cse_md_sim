@@ -23,6 +23,12 @@ NPT_STEPS = 50000  # 100 ps
 # Production (you can keep 1 ns for now or increase)
 PRODUCTION_STEPS = 500000  # 1 ns
 
+# Enhanced sampling (OPES) — the real run, not the 1 ns proof of concept.
+# A 2D FES needs many recrossings; 1 ns / 100 frames gave ~10 effective
+# samples after reweighting, far too few. Increase ENHANCED_STEPS as needed.
+ENHANCED_STEPS = 5000000        # 10 ns at 2 fs
+ENHANCED_DCD_STRIDE = 2500      # save a frame every 5 ps (structure extraction)
+
 # Force field – REMOVE GLYCAM (no sugar)
 FORCEFIELD_FILES = [
     "amber14-all.xml",  # protein

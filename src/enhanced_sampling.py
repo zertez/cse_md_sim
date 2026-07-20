@@ -22,6 +22,10 @@ PROTEIN_RESIDUES = {
 
 BACKBONE_ATOMS = {"N", "CA", "C", "O"}
 
+# Water models write the oxygen under one of these residue / atom names.
+WATER_RESIDUES = {"HOH", "WAT", "SOL", "TIP3", "TIP3P", "T3P", "TIP4", "T4P"}
+WATER_OXYGENS = {"O", "OW", "OH2"}
+
 
 def write_rmsd_reference(structure: Path, reference: Path) -> int:
     """Write a backbone-only PLUMED RMSD reference from a solvated PDB.
@@ -58,12 +62,40 @@ def write_rmsd_reference(structure: Path, reference: Path) -> int:
     return len(kept)
 
 
-def resolve_plumed_script(template: Path, output_dir: Path, reference: Path) -> str:
-    """Substitute @TOKEN@ placeholders in the PLUMED input with absolute paths.
+def water_oxygen_indices(structure: Path) -> str:
+    """Comma-separated 1-based indices of water oxygens, as a PLUMED atom group.
+
+    Counted the same way as write_rmsd_reference (position in the *full*
+    system, not the wrapping serial column), so the indices line up with
+    PLUMED's atom numbering. Used to fill @WATER_O@ in the 2D OPES input.
+    """
+    indices = []
+    index = 0
+
+    for line in structure.read_text().splitlines():
+        if not line.startswith(("ATOM", "HETATM")):
+            continue
+
+        index += 1
+        residue = line[17:20].strip()
+        atom = line[12:16].strip()
+
+        if residue in WATER_RESIDUES and atom in WATER_OXYGENS:
+            indices.append(index)
+
+    if not indices:
+        raise ValueError(f"No water oxygens found in {structure}")
+
+    return ",".join(str(i) for i in indices)
+
+
+def resolve_plumed_script(template: Path, output_dir: Path, reference: Path, water_o: str = "") -> str:
+    """Substitute @TOKEN@ placeholders in the PLUMED input.
 
     PLUMED resolves relative paths against the working directory, which differs
     between a local run and the RunPod container, so every path it touches is
-    made absolute here instead.
+    made absolute here instead. @WATER_O@ (used by the 2D OPES input) is filled
+    with the water-oxygen atom group.
     """
     substitutions = {
         "@REFERENCE@": reference,
@@ -75,6 +107,7 @@ def resolve_plumed_script(template: Path, output_dir: Path, reference: Path) -> 
     script = template.read_text()
     for token, path in substitutions.items():
         script = script.replace(token, str(path.resolve()))
+    script = script.replace("@WATER_O@", water_o)
 
     unresolved = [line for line in script.splitlines() if "@" in line and not line.startswith("#")]
     if unresolved:
@@ -104,7 +137,13 @@ def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
     n_atoms = write_rmsd_reference(equilibrated_pdb, reference)
     print(f"RMSD reference written: {reference} ({n_atoms} backbone atoms)")
 
-    script = resolve_plumed_script(plumed_template, output_dir, reference)
+    # Only build the (large) water-oxygen group when the input actually needs it.
+    water_o = ""
+    if "@WATER_O@" in plumed_template.read_text():
+        water_o = water_oxygen_indices(equilibrated_pdb)
+        print(f"Water-oxygen group built ({water_o.count(',') + 1} atoms)")
+
+    script = resolve_plumed_script(plumed_template, output_dir, reference, water_o)
     (output_dir / "plumed_resolved.dat").write_text(script)
     print(f"PLUMED input resolved from {plumed_template}")
 
@@ -131,7 +170,7 @@ def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
     print("PLUMED force active in context.")
 
     # Reporters
-    simulation.reporters.append(DCDReporter(str(output_dir / "enhanced.dcd"), 5000))
+    simulation.reporters.append(DCDReporter(str(output_dir / "enhanced.dcd"), config.ENHANCED_DCD_STRIDE))
     simulation.reporters.append(
         StateDataReporter(
             str(output_dir / "enhanced_state.csv"),
@@ -148,7 +187,7 @@ def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
     )
 
     # Run
-    steps = 500000  # 1 ns (increase later)
+    steps = config.ENHANCED_STEPS
     print(f"Running {steps} steps with OPES bias...")
     simulation.step(steps)
     print("Enhanced sampling finished.")
@@ -160,4 +199,6 @@ def run_enhanced_sampling(plumed_file: str = "plumed.dat"):
 
 
 if __name__ == "__main__":
-    run_enhanced_sampling()
+    # Default entry point now runs the 2D (distance + hydration) OPES setup.
+    # Pass "plumed.dat" to fall back to the original single-distance run.
+    run_enhanced_sampling("plumed_water2d.dat")
