@@ -48,3 +48,4 @@ cse_tetramer.cif
 
 # Local RunPod credentials
 scripts/pull_and_shutdown.env
+src/plumed2
