@@ -81,7 +81,7 @@ def landscape_mpl(xc, yc, F, out_png, elev=25, azim=-50, ceiling=25.0, upsample=
     print(f"✓ Saved updated landscape configuration to {out_png.name}")
 
 
-def landscape_mpl(xc, yc, F, out_png, elev=20, azim=-55, ceiling=25.0, upsample=8, invert=True):
+def landscape_mpl(xc, yc, F, out_png, elev=20, azim=0, ceiling=25.0, upsample=8, invert=False):
     """
     Renders a clean, floating organic topological landscape using basic Matplotlib.
     Strips away data boxes, ticks, panel borders, and edge artifacts.
