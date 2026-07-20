@@ -1,148 +1,118 @@
 """
 landscape_render.py
 
-Polished 3D renders of the reweighted 2D FES using basic matplotlib.
-- Interpolates the coarse histogram onto a fine grid (smooth, not blocky)
-- Caps the unsampled 'roof' at a sane ceiling
-- Forces invert=True so energy basins become landscape peaks
-- Completely strips the data box framing, grids, and axes for an organic look
-- Container-friendly: Zero extra installation steps needed.
+Smooth 3D renders of the reweighted 2D FES.
+
+Why the default histogram FES looks jagged: it bins a finite number of samples,
+and F = -kT ln P then amplifies the counting noise in low-population bins (the
+rim especially) into spikes. A smooth analytic surface like MATLAB's `peaks`
+never has this because it's an equation, not sampled data.
+
+The fix here is to estimate the density *smoothly* with a weighted Gaussian KDE
+of the reweighted samples, instead of a hard histogram. That is standard, honest
+practice (still your data, just a smooth density estimate) and gives the smooth,
+`peaks`-like surface. `bw` is the smoothness knob: larger = smoother.
+
+CPU-only, reads COLVAR alone. Optional interactive Plotly HTML (needs plotly).
+    python landscape_render.py
 """
 
 import numpy as np
 import matplotlib
-
-matplotlib.use("Agg")  # Headless backend safe for Docker environments
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from scipy.interpolate import RegularGridInterpolator
+from scipy.stats import gaussian_kde
 
 import config
-from enhanced_fes2d import read_colvar, reweight, fes_2d
+from enhanced_fes2d import read_colvar, reweight, KT
 
 
-def _fine_grid(xc, yc, F, ceiling, upsample):
-    """Upsample the FES onto a fine grid, filling unvisited regions smoothly."""
-    sampled = np.isfinite(F)
+def kde_fes(x, y, weights, grid=150, bw=0.20, ceiling=22.0, pad=0.05):
+    """Smooth reweighted FES via weighted Gaussian KDE.
 
-    # Smoothly cap data at the ceiling
-    Ffill = np.where(sampled, np.minimum(F, ceiling), ceiling)
-
-    # We use linear interpolation across the whole area so the edges
-    # blend smoothly out to the ceiling instead of generating NaN drop-offs.
-    fint = RegularGridInterpolator((yc, xc), Ffill, method="linear", bounds_error=False, fill_value=ceiling)
-
-    xf = np.linspace(xc.min(), xc.max(), len(xc) * upsample)
-    yf = np.linspace(yc.min(), yc.max(), len(yc) * upsample)
-    XX, YY = np.meshgrid(xf, yf)
-
-    Z = np.clip(fint((YY, XX)), 0.0, ceiling)
-    return XX, YY, Z
-
-
-def landscape_mpl(xc, yc, F, out_png, elev=25, azim=-50, ceiling=25.0, upsample=8, invert=True):
+    Returns the meshgrid GX, GY and the clipped free energy F (kJ/mol, min 0).
     """
-    Renders a clean, continuous 3D landscape that rolls smoothly down to the base
-    without jagged NaN clipping spikes.
-    """
-    XX, YY, Z = _fine_grid(xc, yc, F, ceiling, upsample)
+    kde = gaussian_kde(np.vstack([x, y]), weights=weights, bw_method=bw)
+    xr = (x.max() - x.min()) * pad
+    yr = (y.max() - y.min()) * pad
+    gx = np.linspace(x.min() - xr, x.max() + xr, grid)
+    gy = np.linspace(y.min() - yr, y.max() + yr, grid)
+    GX, GY = np.meshgrid(gx, gy)
+    P = kde(np.vstack([GX.ravel(), GY.ravel()])).reshape(GX.shape)
+    F = -KT * np.log(P + 1e-300)
+    F -= F.min()
+    return GX, GY, np.clip(F, 0.0, ceiling)
 
-    # Invert: Lowest energy states (basins) become the highest peaks
-    Zplot = (ceiling - Z) if invert else Z
+
+def _slice(F, show_max, invert):
+    """Keep only F <= show_max (a smooth KDE isocontour), as plot heights."""
+    Fm = np.where(F <= show_max, F, np.nan)
+    return (show_max - Fm) if invert else Fm
+
+
+def landscape_mpl(GX, GY, F, out_png, elev=32, azim=-58, show_max=18.0, invert=True):
+    """Smooth surface, axes stripped, floating look. invert=True -> basins as peaks.
+
+    show_max slices the surface at that free-energy contour (kJ/mol) so the low-
+    density rim is cut along a smooth line, not the noisy fringe.
+    """
+    Z = _slice(F, show_max, invert)
+    norm = plt.Normalize(np.nanmin(Z), np.nanmax(Z))
+    colors = plt.cm.turbo(norm(np.nan_to_num(Z, nan=np.nanmin(Z))))
 
     fig = plt.figure(figsize=(11, 8))
     ax = fig.add_subplot(111, projection="3d")
-
-    # Color mapping running smoothly up the updated Z-axis heights
-    norm = plt.Normalize(vmin=np.nanmin(Zplot), vmax=np.nanmax(Zplot))
-    colors = plt.cm.turbo(norm(Zplot))
-
-    # Render without mesh grid lines
-    ax.plot_surface(
-        XX, YY, Zplot, facecolors=colors, rstride=1, cstride=1, linewidth=0, antialiased=True, shade=True, alpha=0.95
-    )
-
-    # Completely strip background grid boxes and numbers
-    ax.axis("off")
-    ax.set_facecolor("none")
-    fig.patch.set_alpha(0.0)
-
-    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-
-    # Set camera perspective orientation
+    ax.plot_surface(GX, GY, Z, facecolors=colors, rstride=1, cstride=1,
+                    linewidth=0, antialiased=True, shade=True)
+    ax.set_axis_off()
     ax.view_init(elev=elev, azim=azim)
-
-    # Flatten out the aspect scaling slightly so it stretches like rolling terrain
-    ax.set_box_aspect((1, 1, 0.35))
-
+    ax.set_box_aspect((1, 1, 0.5))
+    fig.patch.set_alpha(0.0)
     fig.savefig(out_png, dpi=300, bbox_inches="tight", transparent=True)
     plt.close(fig)
-    print(f"✓ Saved updated landscape configuration to {out_png.name}")
 
 
-def landscape_mpl(xc, yc, F, out_png, elev=20, azim=0, ceiling=25.0, upsample=8, invert=False):
-    """
-    Renders a clean, floating organic topological landscape using basic Matplotlib.
-    Strips away data boxes, ticks, panel borders, and edge artifacts.
-    """
-    # 1. High-resolution grid upsampling to completely remove the blocky square look
-    XX, YY, Z = _fine_grid(xc, yc, F, ceiling, upsample)
-
-    # 3. Invert basins into peaks to match the presentation layout perspective
-    Zplot = (ceiling - Z) if invert else Z
-
-    fig = plt.figure(figsize=(11, 8))
-    ax = fig.add_subplot(111, projection="3d")
-
-    # Normalize continuous array heights for a smooth color transition gradient
-    norm = plt.Normalize(vmin=np.nanmin(Zplot), vmax=np.nanmax(Zplot))
-    colors = plt.cm.turbo(norm(Zplot))
-
-    # 2 & 4. Plot surface with ZERO linewidth edge boundaries and smooth shading
-    ax.plot_surface(
-        XX, YY, Zplot, facecolors=colors, rstride=1, cstride=1, linewidth=0, antialiased=True, shade=True, alpha=0.9
+def landscape_plotly(GX, GY, F, out_html, xlabel, ylabel, show_max=18.0, invert=False):
+    """Interactive WebGL surface (drag to any angle). Requires plotly."""
+    import plotly.graph_objects as go
+    Z = _slice(F, show_max, invert)
+    fig = go.Figure(go.Surface(
+        x=GX[0], y=GY[:, 0], z=Z, colorscale="Turbo",
+        colorbar=dict(title="F (kJ/mol)"),
+        lighting=dict(ambient=0.5, diffuse=0.85, roughness=0.4, specular=0.15),
+    ))
+    fig.update_layout(
+        title=f"OPES free-energy landscape — {config.PROTEIN_NAME}",
+        scene=dict(xaxis_title=xlabel, yaxis_title=ylabel,
+                   zaxis_title="Free energy (kJ/mol)"),
+        width=1000, height=800,
     )
-
-    # 1. Drop the data frame boxes, axis grids, text ticks, and colorbars entirely
-    ax.axis("off")
-    ax.set_facecolor("none")
-    fig.patch.set_alpha(0.0)
-
-    # Force transparency on internal default background pane plates
-    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
-
-    # 5. Low panoramic viewpoint perspective mimicking a mountain range horizon
-    ax.view_init(elev=elev, azim=azim)
-
-    # Set proportional dimensional layout aspect scaling
-    ax.set_box_aspect((1, 1, 0.45))
-
-    # Export a presentation-ready high-DPI image with a transparent background canvas
-    fig.savefig(out_png, dpi=300, bbox_inches="tight", transparent=True)
-    plt.close(fig)
-    print(f"✓ Saved polished organic landscape layout to {out_png.name}")
+    fig.write_html(out_html)
 
 
-def run(cv_x="d_active", cv_y="wat", ceiling=25.0):
+def run(cv_x="d_active", cv_y="wat", show_max=18.0, bw=0.20):
     out = config.OUTPUT_DIR
     cv = read_colvar(out / "COLVAR")
-
     for col in (cv_x, cv_y, "opes.bias"):
         if col not in cv.columns:
-            raise KeyError(f"'{col}' not in COLVAR columns {list(cv.columns)}.")
-
+            raise KeyError(f"'{col}' not in COLVAR columns {list(cv.columns)}. "
+                           f"This needs the 2D run (a COLVAR with a '{cv_y}' column).")
     w = reweight(cv)
-    x = cv[cv_x].to_numpy() * 10.0  # nm -> Angstrom
+    x = cv[cv_x].to_numpy() * 10.0            # nm -> Angstrom
     y = cv[cv_y].to_numpy()
-    xc, yc, F, _ = fes_2d(x, y, w)
+    GX, GY, F = kde_fes(x, y, w, ceiling=show_max + 6.0, bw=bw)
+    xlabel = f"{cv_x}  Glu35-Asp52 (Å)"
+    ylabel = f"{cv_y}  water coordination"
 
-    out_png = out / f"{config.PROTEIN_NAME}_topological_landscape.png"
-
-    # Run the optimized layout setup directly
-    landscape_mpl(xc, yc, F, out_png, ceiling=ceiling, upsample=8, invert=True)
+    landscape_mpl(GX, GY, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png",
+                  show_max=show_max, invert=True)
+    print(f"wrote {config.PROTEIN_NAME}_landscape_smooth.png  (bw={bw}, show_max={show_max})")
+    try:
+        landscape_plotly(GX, GY, F, out / f"{config.PROTEIN_NAME}_landscape.html",
+                         xlabel, ylabel, show_max=show_max)
+        print(f"wrote {config.PROTEIN_NAME}_landscape.html  (open locally, drag to rotate)")
+    except ImportError:
+        print("plotly not installed -> run `pixi add plotly` for the interactive HTML")
 
 
 if __name__ == "__main__":
