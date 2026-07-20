@@ -31,7 +31,7 @@ openmm-ml = ">=1.2,<2"
 openmm-torch = ">=1.4,<2"
 openmm-plumed = "*"
 torchani = ">=2.2,<3"
-plumed = ">=2.9,<2.10"
+plumed = { version = "*", channel = "conda-forge/label/opes" }
 tqdm = ">=4.68.4,<5"
 biopython = ">=1.87,<2"
 

@@ -13,7 +13,6 @@ from system_builder import build_system
 from pathlib import Path
 
 # Residues that make up the RMSD reference. Water and ions are excluded:
-# aligning the fold CV on solvent is meaningless and ruinously slow.
 PROTEIN_RESIDUES = {
     "ALA",
     "ARG",
