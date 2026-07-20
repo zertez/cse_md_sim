@@ -1,17 +1,15 @@
 """
 landscape_render.py
 
-Smooth 3D render of the reweighted 2D FES.
+Smooth 3D render of the reweighted 2D FES, in the standard free-energy-landscape
+style: a downward funnel (energy wells point down), turbo surface, a floor
+contour projection, and axes.
 
 Why the default histogram FES looks jagged: it bins a finite number of samples,
-and F = -kT ln P then amplifies the counting noise in low-population bins (the
-rim especially) into spikes. A smooth analytic surface like MATLAB's `peaks`
-never has this because it's an equation, not sampled data.
-
-The fix here is to estimate the density *smoothly* with a weighted Gaussian KDE
-of the reweighted samples, instead of a hard histogram. That is standard, honest
-practice (still your data, just a smooth density estimate) and gives the smooth,
-`peaks`-like surface. `bw` is the smoothness knob: larger = smoother.
+and F = -kT ln P amplifies the counting noise in low-population bins into spikes.
+This estimates the density *smoothly* with a weighted Gaussian KDE of the
+reweighted samples instead of a hard histogram, giving a smooth surface that is
+still faithful to the data. `bw` is the smoothness knob (larger = smoother).
 
 CPU-only, reads COLVAR alone.
     python landscape_render.py
@@ -27,7 +25,7 @@ import config
 from enhanced_fes2d import read_colvar, reweight, KT
 
 
-def kde_fes(x, y, weights, grid=150, bw=0.20, ceiling=24.0, pad=0.05):
+def kde_fes(x, y, weights, grid=150, bw=0.20, ceiling=30.0, pad=0.05):
     """Smooth reweighted FES via weighted Gaussian KDE.
 
     Returns the meshgrid GX, GY and the clipped free energy F (kJ/mol, min 0).
@@ -44,37 +42,38 @@ def kde_fes(x, y, weights, grid=150, bw=0.20, ceiling=24.0, pad=0.05):
     return GX, GY, np.clip(F, 0.0, ceiling)
 
 
-def _slice(F, show_max, invert):
-    """Keep only F <= show_max (a smooth KDE isocontour), as plot heights."""
-    Fm = np.where(F <= show_max, F, np.nan)
-    return (show_max - Fm) if invert else Fm
+def landscape_mpl(GX, GY, F, out_png, xlabel, ylabel, elev=30, azim=-60,
+                  show_max=22.0, invert=False):
+    """Smooth free-energy landscape.
 
-
-def landscape_mpl(GX, GY, F, out_png, elev=32, azim=-58, show_max=18.0, invert=False):
-    """Smooth surface, axes stripped, floating look.
-
-    invert=False -> energy wells point down (true free-energy orientation).
-    invert=True  -> basins flipped up into peaks.
-    show_max slices the surface at that free-energy contour (kJ/mol) so the low-
-    density rim is cut along a smooth line, not the noisy fringe.
+    invert=False -> downward funnel: the basin (low F) sits at the bottom of the
+    z-axis and the walls rise up around it (standard FES orientation).
+    invert=True  -> basin flipped up into a peak.
+    show_max slices off the low-density rim at that F contour (kJ/mol), so there
+    is no flat 'roof', just the funnel.
     """
-    Z = _slice(F, show_max, invert)
-    norm = plt.Normalize(np.nanmin(Z), np.nanmax(Z))
-    colors = plt.cm.turbo(norm(np.nan_to_num(Z, nan=np.nanmin(Z))))
+    Fm = np.where(F <= show_max, F, np.nan)
+    Z = (show_max - Fm) if invert else Fm
+    zmin, zmax = np.nanmin(Z), np.nanmax(Z)
 
     fig = plt.figure(figsize=(11, 8))
     ax = fig.add_subplot(111, projection="3d")
-    ax.plot_surface(GX, GY, Z, facecolors=colors, rstride=1, cstride=1,
-                    linewidth=0, antialiased=True, shade=True)
-    ax.set_axis_off()
+    surf = ax.plot_surface(GX, GY, Z, cmap="turbo", vmin=zmin, vmax=zmax,
+                           rstride=1, cstride=1, linewidth=0, antialiased=True)
+    # floor contour projection, like the reference figure
+    ax.contour(GX, GY, Z, zdir="z", offset=zmin - 0.18 * (zmax - zmin),
+               levels=14, cmap="turbo", alpha=0.6)
+    ax.set_xlabel(xlabel, labelpad=10)
+    ax.set_ylabel(ylabel, labelpad=10)
+    ax.set_zlabel("Free energy (kJ/mol)", labelpad=8)
+    ax.set_title(f"OPES free-energy landscape — {config.PROTEIN_NAME}")
     ax.view_init(elev=elev, azim=azim)
-    ax.set_box_aspect((1, 1, 0.5))
-    fig.patch.set_alpha(0.0)
-    fig.savefig(out_png, dpi=300, bbox_inches="tight", transparent=True)
+    fig.colorbar(surf, shrink=0.5, aspect=12, pad=0.10, label="Free energy (kJ/mol)")
+    fig.savefig(out_png, dpi=250, bbox_inches="tight")
     plt.close(fig)
 
 
-def run(cv_x="d_active", cv_y="wat", show_max=18.0, bw=0.20):
+def run(cv_x="d_active", cv_y="wat", show_max=22.0, bw=0.20):
     out = config.OUTPUT_DIR
     cv = read_colvar(out / "COLVAR")
     for col in (cv_x, cv_y, "opes.bias"):
@@ -84,10 +83,12 @@ def run(cv_x="d_active", cv_y="wat", show_max=18.0, bw=0.20):
     w = reweight(cv)
     x = cv[cv_x].to_numpy() * 10.0            # nm -> Angstrom
     y = cv[cv_y].to_numpy()
-    GX, GY, F = kde_fes(x, y, w, ceiling=show_max + 6.0, bw=bw)
+    GX, GY, F = kde_fes(x, y, w, ceiling=show_max + 8.0, bw=bw)
+    xlabel = f"{cv_x}  Glu35-Asp52 (Å)"
+    ylabel = f"{cv_y}  water coordination"
 
     landscape_mpl(GX, GY, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png",
-                  show_max=show_max, invert=False)
+                  xlabel, ylabel, show_max=show_max, invert=False)
     print(f"wrote {config.PROTEIN_NAME}_landscape_smooth.png  (bw={bw}, show_max={show_max})")
 
 
