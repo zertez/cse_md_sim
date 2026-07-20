@@ -17,6 +17,7 @@ the COLVAR from the pod, then open the .html.
 
 import numpy as np
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LightSource
@@ -35,55 +36,69 @@ def _fine_grid(xc, yc, F, ceiling, upsample):
     """
     sampled = np.isfinite(F)
     Ffill = np.where(sampled, np.minimum(F, ceiling), ceiling)
-    fint = RegularGridInterpolator((yc, xc), Ffill, method="linear",
-                                   bounds_error=False, fill_value=ceiling)
-    mint = RegularGridInterpolator((yc, xc), sampled.astype(float), method="linear",
-                                   bounds_error=False, fill_value=0.0)
+    fint = RegularGridInterpolator((yc, xc), Ffill, method="linear", bounds_error=False, fill_value=ceiling)
+    mint = RegularGridInterpolator((yc, xc), sampled.astype(float), method="linear", bounds_error=False, fill_value=0.0)
     xf = np.linspace(xc.min(), xc.max(), len(xc) * upsample)
     yf = np.linspace(yc.min(), yc.max(), len(yc) * upsample)
     XX, YY = np.meshgrid(xf, yf)
     Z = np.clip(fint((YY, XX)), 0.0, ceiling)
-    Z = np.where(mint((YY, XX)) >= 0.5, Z, np.nan)   # gaps outside sampled region
+    Z = np.where(mint((YY, XX)) >= 0.5, Z, np.nan)  # gaps outside sampled region
     return XX, YY, Z
 
 
-def landscape_mpl(xc, yc, F, out_png, xlabel, ylabel, elev=35, azim=-60,
-                  ceiling=25.0, upsample=5, invert=False):
-    """Smooth, hillshaded matplotlib surface. invert=True -> basins become peaks."""
+def landscape_mpl(xc, yc, F, out_png, xlabel, ylabel, elev=20, azim=-55, ceiling=25.0, upsample=5, invert=True):
+    """
+    Smooth, floating, hillshaded surface matching the presentation-ready aesthetic.
+    Forces invert=True to turn energy basins into landscape peaks.
+    """
     XX, YY, Z = _fine_grid(xc, yc, F, ceiling, upsample)
+
+    # Invert the surface so basins map to peaks (crucial for the screenshot look)
     Zplot = (ceiling - Z) if invert else Z
+
+    # Use LightSource to generate smooth shades from an overhead angle
     ls = LightSource(azdeg=315, altdeg=45)
     rgb = ls.shade(Zplot, cmap=plt.cm.turbo, vert_exag=1.0, blend_mode="soft")
 
     fig = plt.figure(figsize=(11, 8))
     ax = fig.add_subplot(111, projection="3d")
-    ax.plot_surface(XX, YY, Zplot, facecolors=rgb, rstride=1, cstride=1,
-                    linewidth=0, antialiased=True, shade=False)
-    ax.set_xlabel(xlabel, labelpad=10)
-    ax.set_ylabel(ylabel, labelpad=10)
-    ax.set_zlabel(("-" if invert else "") + "Free energy (kJ/mol)", labelpad=8)
-    ax.set_title(f"OPES free-energy landscape — {config.PROTEIN_NAME}")
+
+    # Plot with zero linewidth to eliminate the mesh grid entirely
+    ax.plot_surface(XX, YY, Zplot, facecolors=rgb, rstride=1, cstride=1, linewidth=0, antialiased=True, shade=False)
+
+    # --- SCREENSHOT AESTHETIC MODIFICATIONS ---
+    ax.axis("off")  # Completely strips the axis box, grid lines, and ticks
+    ax.set_facecolor("none")  # Transparent background for clean panel layout
+    fig.patch.set_alpha(0.0)
+
+    # Set a lower sweeping elevation angle for dramatic landscape relief
     ax.view_init(elev=elev, azim=azim)
-    fig.savefig(out_png, dpi=220, bbox_inches="tight")
+
+    fig.savefig(out_png, dpi=300, bbox_inches="tight", transparent=True)
     plt.close(fig)
 
 
 def landscape_plotly(xc, yc, F, out_html, xlabel, ylabel, ceiling=25.0, upsample=5):
     """Interactive WebGL surface (drag to any angle). Requires plotly."""
     import plotly.graph_objects as go
+
     XX, YY, Z = _fine_grid(xc, yc, F, ceiling, upsample)
-    fig = go.Figure(go.Surface(
-        x=XX[0], y=YY[:, 0], z=Z, colorscale="Turbo",
-        colorbar=dict(title="F (kJ/mol)"),
-        lighting=dict(ambient=0.5, diffuse=0.85, roughness=0.4, specular=0.15),
-        contours={"z": {"show": True, "usecolormap": True, "project_z": True,
-                        "width": 1}},
-    ))
+    fig = go.Figure(
+        go.Surface(
+            x=XX[0],
+            y=YY[:, 0],
+            z=Z,
+            colorscale="Turbo",
+            colorbar=dict(title="F (kJ/mol)"),
+            lighting=dict(ambient=0.5, diffuse=0.85, roughness=0.4, specular=0.15),
+            contours={"z": {"show": True, "usecolormap": True, "project_z": True, "width": 1}},
+        )
+    )
     fig.update_layout(
         title=f"OPES free-energy landscape — {config.PROTEIN_NAME}",
-        scene=dict(xaxis_title=xlabel, yaxis_title=ylabel,
-                   zaxis_title="Free energy (kJ/mol)"),
-        width=1000, height=800,
+        scene=dict(xaxis_title=xlabel, yaxis_title=ylabel, zaxis_title="Free energy (kJ/mol)"),
+        width=1000,
+        height=800,
     )
     fig.write_html(out_html)
 
@@ -95,18 +110,16 @@ def run(cv_x="d_active", cv_y="wat", ceiling=25.0):
         if col not in cv.columns:
             raise KeyError(f"'{col}' not in COLVAR columns {list(cv.columns)}.")
     w = reweight(cv)
-    x = cv[cv_x].to_numpy() * 10.0            # nm -> Angstrom
+    x = cv[cv_x].to_numpy() * 10.0  # nm -> Angstrom
     y = cv[cv_y].to_numpy()
     xc, yc, F, _ = fes_2d(x, y, w)
     xlabel = f"{cv_x}  Glu35-Asp52 (Å)"
     ylabel = f"{cv_y}  water coordination"
 
-    landscape_mpl(xc, yc, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png",
-                  xlabel, ylabel, ceiling=ceiling)
+    landscape_mpl(xc, yc, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png", xlabel, ylabel, ceiling=ceiling)
     print(f"wrote {config.PROTEIN_NAME}_landscape_smooth.png")
     try:
-        landscape_plotly(xc, yc, F, out / f"{config.PROTEIN_NAME}_landscape.html",
-                         xlabel, ylabel, ceiling=ceiling)
+        landscape_plotly(xc, yc, F, out / f"{config.PROTEIN_NAME}_landscape.html", xlabel, ylabel, ceiling=ceiling)
         print(f"wrote {config.PROTEIN_NAME}_landscape.html  (open locally, drag to rotate)")
     except ImportError:
         print("plotly not installed -> run `pixi add plotly` for the interactive HTML")
