@@ -1,7 +1,7 @@
 """
 landscape_render.py
 
-Smooth 3D renders of the reweighted 2D FES.
+Smooth 3D render of the reweighted 2D FES.
 
 Why the default histogram FES looks jagged: it bins a finite number of samples,
 and F = -kT ln P then amplifies the counting noise in low-population bins (the
@@ -13,7 +13,7 @@ of the reweighted samples, instead of a hard histogram. That is standard, honest
 practice (still your data, just a smooth density estimate) and gives the smooth,
 `peaks`-like surface. `bw` is the smoothness knob: larger = smoother.
 
-CPU-only, reads COLVAR alone. Optional interactive Plotly HTML (needs plotly).
+CPU-only, reads COLVAR alone.
     python landscape_render.py
 """
 
@@ -27,7 +27,7 @@ import config
 from enhanced_fes2d import read_colvar, reweight, KT
 
 
-def kde_fes(x, y, weights, grid=150, bw=0.20, ceiling=22.0, pad=0.05):
+def kde_fes(x, y, weights, grid=150, bw=0.20, ceiling=24.0, pad=0.05):
     """Smooth reweighted FES via weighted Gaussian KDE.
 
     Returns the meshgrid GX, GY and the clipped free energy F (kJ/mol, min 0).
@@ -50,9 +50,11 @@ def _slice(F, show_max, invert):
     return (show_max - Fm) if invert else Fm
 
 
-def landscape_mpl(GX, GY, F, out_png, elev=32, azim=-58, show_max=18.0, invert=True):
-    """Smooth surface, axes stripped, floating look. invert=True -> basins as peaks.
+def landscape_mpl(GX, GY, F, out_png, elev=32, azim=-58, show_max=18.0, invert=False):
+    """Smooth surface, axes stripped, floating look.
 
+    invert=False -> energy wells point down (true free-energy orientation).
+    invert=True  -> basins flipped up into peaks.
     show_max slices the surface at that free-energy contour (kJ/mol) so the low-
     density rim is cut along a smooth line, not the noisy fringe.
     """
@@ -72,24 +74,6 @@ def landscape_mpl(GX, GY, F, out_png, elev=32, azim=-58, show_max=18.0, invert=T
     plt.close(fig)
 
 
-def landscape_plotly(GX, GY, F, out_html, xlabel, ylabel, show_max=18.0, invert=False):
-    """Interactive WebGL surface (drag to any angle). Requires plotly."""
-    import plotly.graph_objects as go
-    Z = _slice(F, show_max, invert)
-    fig = go.Figure(go.Surface(
-        x=GX[0], y=GY[:, 0], z=Z, colorscale="Turbo",
-        colorbar=dict(title="F (kJ/mol)"),
-        lighting=dict(ambient=0.5, diffuse=0.85, roughness=0.4, specular=0.15),
-    ))
-    fig.update_layout(
-        title=f"OPES free-energy landscape — {config.PROTEIN_NAME}",
-        scene=dict(xaxis_title=xlabel, yaxis_title=ylabel,
-                   zaxis_title="Free energy (kJ/mol)"),
-        width=1000, height=800,
-    )
-    fig.write_html(out_html)
-
-
 def run(cv_x="d_active", cv_y="wat", show_max=18.0, bw=0.20):
     out = config.OUTPUT_DIR
     cv = read_colvar(out / "COLVAR")
@@ -101,18 +85,10 @@ def run(cv_x="d_active", cv_y="wat", show_max=18.0, bw=0.20):
     x = cv[cv_x].to_numpy() * 10.0            # nm -> Angstrom
     y = cv[cv_y].to_numpy()
     GX, GY, F = kde_fes(x, y, w, ceiling=show_max + 6.0, bw=bw)
-    xlabel = f"{cv_x}  Glu35-Asp52 (Å)"
-    ylabel = f"{cv_y}  water coordination"
 
     landscape_mpl(GX, GY, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png",
-                  show_max=show_max, invert=True)
+                  show_max=show_max, invert=False)
     print(f"wrote {config.PROTEIN_NAME}_landscape_smooth.png  (bw={bw}, show_max={show_max})")
-    try:
-        landscape_plotly(GX, GY, F, out / f"{config.PROTEIN_NAME}_landscape.html",
-                         xlabel, ylabel, show_max=show_max)
-        print(f"wrote {config.PROTEIN_NAME}_landscape.html  (open locally, drag to rotate)")
-    except ImportError:
-        print("plotly not installed -> run `pixi add plotly` for the interactive HTML")
 
 
 if __name__ == "__main__":
