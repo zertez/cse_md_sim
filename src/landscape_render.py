@@ -1,26 +1,5 @@
-"""
-landscape_render.py
-
-Nicer 3D renders of the reweighted 2D FES than the default matplotlib surface:
-- interpolates the coarse histogram onto a fine grid (smooth, not blocky),
-- caps the unsampled 'roof' at a sane ceiling instead of the max,
-- adds hillshade lighting, and lets you set the view angle or invert
-  (basins -> peaks), and
-- optionally writes an interactive Plotly HTML you can drag to any angle.
-
-CPU-only, reads COLVAR alone. For interactivity, run it locally after pulling
-the COLVAR from the pod, then open the .html.
-
-    python landscape_render.py                # both renders, default view
-    # in Python: landscape_mpl(..., invert=True) or view angles as you like
-"""
-
 import numpy as np
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.colors import LightSource
+import pyvista as pv
 from scipy.interpolate import RegularGridInterpolator
 
 import config
@@ -28,101 +7,86 @@ from enhanced_fes2d import read_colvar, reweight, fes_2d
 
 
 def _fine_grid(xc, yc, F, ceiling, upsample):
-    """Upsample the (masked) FES onto a fine grid.
-
-    Linear interpolation (no cubic overshoot -> no rim spikes). Cells outside
-    the sampled region are returned as NaN so the surface has clean gaps rather
-    than a flat 'roof' filled at the ceiling.
-    """
+    """Upsample the coarse FES onto a fine grid for a smooth, organic mesh."""
     sampled = np.isfinite(F)
     Ffill = np.where(sampled, np.minimum(F, ceiling), ceiling)
     fint = RegularGridInterpolator((yc, xc), Ffill, method="linear", bounds_error=False, fill_value=ceiling)
     mint = RegularGridInterpolator((yc, xc), sampled.astype(float), method="linear", bounds_error=False, fill_value=0.0)
+
     xf = np.linspace(xc.min(), xc.max(), len(xc) * upsample)
     yf = np.linspace(yc.min(), yc.max(), len(yc) * upsample)
     XX, YY = np.meshgrid(xf, yf)
     Z = np.clip(fint((YY, XX)), 0.0, ceiling)
-    Z = np.where(mint((YY, XX)) >= 0.5, Z, np.nan)  # gaps outside sampled region
+    Z = np.where(mint((YY, XX)) >= 0.5, Z, np.nan)
     return XX, YY, Z
 
 
-def landscape_mpl(xc, yc, F, out_png, xlabel, ylabel, elev=20, azim=-55, ceiling=25.0, upsample=5, invert=True):
+def landscape_pyvista(xc, yc, F, out_png, ceiling=25.0, upsample=8, invert=True):
     """
-    Smooth, floating, hillshaded surface matching the presentation-ready aesthetic.
-    Forces invert=True to turn energy basins into landscape peaks.
+    Renders an organic, smooth 3D free energy landscape using PyVista's VTK mesh engine.
+    Strips away all grid lines, scientific bounding boxes, and applies cinematic lighting.
     """
     XX, YY, Z = _fine_grid(xc, yc, F, ceiling, upsample)
 
-    # Invert the surface so basins map to peaks (crucial for the screenshot look)
+    # 3. Invert the surface so the energy basins look like the screenshot's mountains
     Zplot = (ceiling - Z) if invert else Z
 
-    # Use LightSource to generate smooth shades from an overhead angle
-    ls = LightSource(azdeg=315, altdeg=45)
-    rgb = ls.shade(Zplot, cmap=plt.cm.turbo, vert_exag=1.0, blend_mode="soft")
+    # Replace NaNs with a dummy value for the structured mesh geometry framework,
+    # then we strip them using a threshold to get clean, organic edges.
+    Z_fixed = np.where(np.isnan(Zplot), -999, Zplot)
 
-    fig = plt.figure(figsize=(11, 8))
-    ax = fig.add_subplot(111, projection="3d")
+    # Create a true 3D Structured Mesh
+    grid = pv.StructuredGrid(XX, YY, Z_fixed)
+    grid = grid.threshold(0.0, scalars=grid.active_scalars_name)  # Drops the unvisited "roof" completely
 
-    # Plot with zero linewidth to eliminate the mesh grid entirely
-    ax.plot_surface(XX, YY, Zplot, facecolors=rgb, rstride=1, cstride=1, linewidth=0, antialiased=True, shade=False)
+    # Initialize a headless high-res plotter instance
+    plotter = pv.Plotter(off_screen=True, lighting="light_kit")
 
-    # --- SCREENSHOT AESTHETIC MODIFICATIONS ---
-    ax.axis("off")  # Completely strips the axis box, grid lines, and ticks
-    ax.set_facecolor("none")  # Transparent background for clean panel layout
-    fig.patch.set_alpha(0.0)
+    # Set background completely transparent (or choose 'white')
+    plotter.background_color = "white"
 
-    # Set a lower sweeping elevation angle for dramatic landscape relief
-    ax.view_init(elev=elev, azim=azim)
-
-    fig.savefig(out_png, dpi=300, bbox_inches="tight", transparent=True)
-    plt.close(fig)
-
-
-def landscape_plotly(xc, yc, F, out_html, xlabel, ylabel, ceiling=25.0, upsample=5):
-    """Interactive WebGL surface (drag to any angle). Requires plotly."""
-    import plotly.graph_objects as go
-
-    XX, YY, Z = _fine_grid(xc, yc, F, ceiling, upsample)
-    fig = go.Figure(
-        go.Surface(
-            x=XX[0],
-            y=YY[:, 0],
-            z=Z,
-            colorscale="Turbo",
-            colorbar=dict(title="F (kJ/mol)"),
-            lighting=dict(ambient=0.5, diffuse=0.85, roughness=0.4, specular=0.15),
-            contours={"z": {"show": True, "usecolormap": True, "project_z": True, "width": 1}},
-        )
+    # Add the mesh to the scene with cinematic settings
+    plotter.add_mesh(
+        grid,
+        cmap="turbo",
+        smooth_shading=True,  # 2. Employs Gouraud/Phong shading to remove grid lines entirely
+        ambient=0.4,  # Fills harsh shadows with soft environmental light
+        diffuse=0.8,  # Natural matte light scattering across peaks
+        specular=0.1,  # Subtle highlights on the ridges
+        show_scalar_bar=False,  # 1. Strips away the ugly scientific colorbar scale
     )
-    fig.update_layout(
-        title=f"OPES free-energy landscape — {config.PROTEIN_NAME}",
-        scene=dict(xaxis_title=xlabel, yaxis_title=ylabel, zaxis_title="Free energy (kJ/mol)"),
-        width=1000,
-        height=800,
-    )
-    fig.write_html(out_html)
+
+    # 5. Position the camera to match the low, sweeping view angle of the screenshot
+    # PyVista camera position: [eye coordinates, focus center, up-vector]
+    plotter.camera_position = [
+        (xc.mean() + 15, yc.mean() - 15, ceiling * 1.8),  # Camera location
+        (xc.mean(), yc.mean(), ceiling * 0.3),  # Look-at point
+        (0.0, 0.0, 1.0),  # Up orientation
+    ]
+
+    # Save a clean, razor-sharp presentation image
+    plotter.screenshot(out_png, window_size=[1200, 900], scale=3)
+    plotter.close()
+    print(f"✓ Saved organic PyVista landscape to {out_png.name}")
 
 
 def run(cv_x="d_active", cv_y="wat", ceiling=25.0):
     out = config.OUTPUT_DIR
     cv = read_colvar(out / "COLVAR")
+
     for col in (cv_x, cv_y, "opes.bias"):
         if col not in cv.columns:
             raise KeyError(f"'{col}' not in COLVAR columns {list(cv.columns)}.")
+
     w = reweight(cv)
     x = cv[cv_x].to_numpy() * 10.0  # nm -> Angstrom
     y = cv[cv_y].to_numpy()
     xc, yc, F, _ = fes_2d(x, y, w)
-    xlabel = f"{cv_x}  Glu35-Asp52 (Å)"
-    ylabel = f"{cv_y}  water coordination"
 
-    landscape_mpl(xc, yc, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png", xlabel, ylabel, ceiling=ceiling)
-    print(f"wrote {config.PROTEIN_NAME}_landscape_smooth.png")
-    try:
-        landscape_plotly(xc, yc, F, out / f"{config.PROTEIN_NAME}_landscape.html", xlabel, ylabel, ceiling=ceiling)
-        print(f"wrote {config.PROTEIN_NAME}_landscape.html  (open locally, drag to rotate)")
-    except ImportError:
-        print("plotly not installed -> run `pixi add plotly` for the interactive HTML")
+    out_png = out / f"{config.PROTEIN_NAME}_pyvista_landscape.png"
+
+    # Run the cinematic mesh generation pipeline
+    landscape_pyvista(xc, yc, F, out_png, ceiling=ceiling, upsample=8, invert=True)
 
 
 if __name__ == "__main__":
