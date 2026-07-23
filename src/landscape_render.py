@@ -1,22 +1,11 @@
 """
-landscape_render.py
+landscape_topology_render.py
 
-Smooth 3D render of the reweighted 2D FES, in the standard free-energy-landscape
-style: a downward funnel (energy wells point down), turbo surface, a floor
-contour projection, and axes.
-
-Why the default histogram FES looks jagged: it bins a finite number of samples,
-and F = -kT ln P amplifies the counting noise in low-population bins into spikes.
-This estimates the density *smoothly* with a weighted Gaussian KDE of the
-reweighted samples instead of a hard histogram, giving a smooth surface that is
-still faithful to the data. `bw` is the smoothness knob (larger = smoother).
-
-CPU-only, reads COLVAR alone.
-    python landscape_render.py
 """
 
 import numpy as np
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
@@ -42,15 +31,11 @@ def kde_fes(x, y, weights, grid=150, bw=0.20, ceiling=30.0, pad=0.05):
     return GX, GY, np.clip(F, 0.0, ceiling)
 
 
-def landscape_mpl(GX, GY, F, out_png, xlabel, ylabel, elev=30, azim=-60,
-                  show_max=22.0, invert=False):
+def landscape_mpl(GX, GY, F, out_png, xlabel, ylabel, elev=30, azim=-60, show_max=22.0, invert=False):
     """Smooth free-energy landscape.
 
-    invert=False -> downward funnel: the basin (low F) sits at the bottom of the
-    z-axis and the walls rise up around it (standard FES orientation).
+    invert=False -> downward funnel
     invert=True  -> basin flipped up into a peak.
-    show_max slices off the low-density rim at that F contour (kJ/mol), so there
-    is no flat 'roof', just the funnel.
     """
     Fm = np.where(F <= show_max, F, np.nan)
     Z = (show_max - Fm) if invert else Fm
@@ -58,11 +43,11 @@ def landscape_mpl(GX, GY, F, out_png, xlabel, ylabel, elev=30, azim=-60,
 
     fig = plt.figure(figsize=(11, 8))
     ax = fig.add_subplot(111, projection="3d")
-    surf = ax.plot_surface(GX, GY, Z, cmap="turbo", vmin=zmin, vmax=zmax,
-                           rstride=1, cstride=1, linewidth=0, antialiased=True)
+    surf = ax.plot_surface(
+        GX, GY, Z, cmap="turbo", vmin=zmin, vmax=zmax, rstride=1, cstride=1, linewidth=0, antialiased=True
+    )
     # floor contour projection, like the reference figure
-    ax.contour(GX, GY, Z, zdir="z", offset=zmin - 0.18 * (zmax - zmin),
-               levels=14, cmap="turbo", alpha=0.6)
+    ax.contour(GX, GY, Z, zdir="z", offset=zmin - 0.18 * (zmax - zmin), levels=14, cmap="turbo", alpha=0.6)
     ax.set_xlabel(xlabel, labelpad=10)
     ax.set_ylabel(ylabel, labelpad=10)
     ax.set_zlabel("Free energy (kJ/mol)", labelpad=8)
@@ -78,17 +63,20 @@ def run(cv_x="d_active", cv_y="wat", show_max=22.0, bw=0.20):
     cv = read_colvar(out / "COLVAR")
     for col in (cv_x, cv_y, "opes.bias"):
         if col not in cv.columns:
-            raise KeyError(f"'{col}' not in COLVAR columns {list(cv.columns)}. "
-                           f"This needs the 2D run (a COLVAR with a '{cv_y}' column).")
+            raise KeyError(
+                f"'{col}' not in COLVAR columns {list(cv.columns)}. "
+                f"This needs the 2D run (a COLVAR with a '{cv_y}' column)."
+            )
     w = reweight(cv)
-    x = cv[cv_x].to_numpy() * 10.0            # nm -> Angstrom
+    x = cv[cv_x].to_numpy() * 10.0  # nm -> Angstrom
     y = cv[cv_y].to_numpy()
     GX, GY, F = kde_fes(x, y, w, ceiling=show_max + 8.0, bw=bw)
     xlabel = f"{cv_x}  Glu35-Asp52 (Å)"
     ylabel = f"{cv_y}  water coordination"
 
-    landscape_mpl(GX, GY, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png",
-                  xlabel, ylabel, show_max=show_max, invert=False)
+    landscape_mpl(
+        GX, GY, F, out / f"{config.PROTEIN_NAME}_landscape_smooth.png", xlabel, ylabel, show_max=show_max, invert=False
+    )
     print(f"wrote {config.PROTEIN_NAME}_landscape_smooth.png  (bw={bw}, show_max={show_max})")
 
 

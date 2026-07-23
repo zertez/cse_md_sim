@@ -15,9 +15,33 @@ from pathlib import Path
 # Residues that make up the RMSD reference. Water and ions are excluded:
 # aligning the fold CV on solvent is meaningless and ruinously slow.
 PROTEIN_RESIDUES = {
-    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
-    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
-    "HID", "HIE", "HIP", "CYX", "ASH", "GLH", "LYN",
+    "ALA",
+    "ARG",
+    "ASN",
+    "ASP",
+    "CYS",
+    "GLN",
+    "GLU",
+    "GLY",
+    "HIS",
+    "ILE",
+    "LEU",
+    "LYS",
+    "MET",
+    "PHE",
+    "PRO",
+    "SER",
+    "THR",
+    "TRP",
+    "TYR",
+    "VAL",
+    "HID",
+    "HIE",
+    "HIP",
+    "CYX",
+    "ASH",
+    "GLH",
+    "LYN",
 }
 
 BACKBONE_ATOMS = {"N", "CA", "C", "O"}
@@ -29,8 +53,6 @@ WATER_OXYGENS = {"O", "OW", "OH2"}
 
 def write_rmsd_reference(structure: Path, reference: Path) -> int:
     """Write a backbone-only PLUMED RMSD reference from a solvated PDB.
-
-    Two details matter and neither is optional:
 
     - Serial numbers must be the atom's 1-based index in the *full* system,
       because that is how PLUMED addresses atoms. They are recounted here

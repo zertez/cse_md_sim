@@ -19,7 +19,8 @@ def read_colvar(path):
 
 def reweight(cv):
     """OPES frame weights: w_i = exp(V_i / kT), max-shifted, normalized."""
-    bias = cv["opes.bias"].to_numpy()  # raises if column missing (good)
+    # raises if column missing (good)
+    bias = cv["opes.bias"].to_numpy()
     w = np.exp((bias - bias.max()) / kT)
     return w / w.sum()
 
@@ -52,7 +53,7 @@ def run_reweight_analysis():
     rmsd = cv["rmsd"].to_numpy()
     print(f"Loaded {len(cv)} frames; ΔG(closed→open) = {delta_g(dact, w):.2f} kJ/mol")
 
-    # --- 1D FES along d_active (the CV that recrossed) ---
+    # === 1D FES along d_active (the CV that recrossed) ===
     x, fes = fes_1d(dact, w)
     plt.figure(figsize=(10, 6))
     plt.plot(x, fes, lw=2.5)
@@ -62,7 +63,7 @@ def run_reweight_analysis():
     plt.grid(True)
     plt.savefig(out / "fes_d_active_1d.png", dpi=300, bbox_inches="tight")
 
-    # --- 2D FES ---
+    # === 2D FES ===
     H, xe, ye = np.histogram2d(rmsd, dact, bins=40, weights=w, density=True)
     F = -kT * np.log(H.T + 1e-12)
     F -= F.min()
@@ -74,7 +75,7 @@ def run_reweight_analysis():
     plt.title("2D Free Energy Surface")
     plt.savefig(out / "fes_2d.png", dpi=300, bbox_inches="tight")
 
-    # --- Convergence: ΔG over cumulative time, + second run if present ---
+    # === Convergence: ΔG over cumulative time, + second run if present ===
     t = cv["time"].to_numpy()
     frac = np.linspace(0.2, 1.0, 20)
     dg_t = []

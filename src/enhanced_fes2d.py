@@ -5,7 +5,7 @@ enhanced_fes2d.py
 
 Reweighting weight per frame is w_i = exp(V_i / kT) with V_i = opes.bias; the
 unbiased density P(s) is the weighted histogram and F(s) = -kT ln P(s). Both
-CVs come straight from COLVAR (printed every 500 steps by plumed_water2d.dat),
+CVs come from COLVAR (printed every 500 steps by plumed_water2d.dat),
 so there is no trajectory alignment and no sparse-sampling penalty.
 
 Run this after enhanced_sampling.py on the COLVAR from the 2D setup.
@@ -14,6 +14,7 @@ Run this after enhanced_sampling.py on the COLVAR from the 2D setup.
 import numpy as np
 import pandas as pd
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
@@ -26,7 +27,8 @@ KT = 0.0083144621 * config.TEMPERATURE.value_in_unit(config.unit.kelvin)
 def read_colvar(path):
     """Parse a PLUMED COLVAR, taking column names from the '#! FIELDS' line."""
     with open(path) as f:
-        names = f.readline().split()[2:]        # drop '#!' and 'FIELDS'
+        # drop '#!' and 'FIELDS'
+        names = f.readline().split()[2:]
     return pd.read_csv(path, sep=r"\s+", comment="#", names=names)
 
 
@@ -68,18 +70,17 @@ def run(cv_x="d_active", cv_y="wat"):
     for col in (cv_x, cv_y, "opes.bias"):
         if col not in cv.columns:
             raise KeyError(
-                f"'{col}' not in COLVAR columns {list(cv.columns)}. "
-                f"This expects the 2D run (plumed_water2d.dat)."
+                f"'{col}' not in COLVAR columns {list(cv.columns)}. This expects the 2D run (plumed_water2d.dat)."
             )
 
     w = reweight(cv)
-    neff = 1.0 / np.sum(w ** 2)
-    x = cv[cv_x].to_numpy() * 10.0        # nm -> Angstrom
+    neff = 1.0 / np.sum(w**2)
+    # nm -> Angstrom
+    x = cv[cv_x].to_numpy() * 10.0
     y = cv[cv_y].to_numpy()
     print(f"{len(cv)} frames; effective samples after reweighting: {neff:.0f}")
     if neff < 200:
-        print("  WARNING: low effective sample size -> a 2D FES will be noisy. "
-              "Run longer before trusting it.")
+        print("  WARNING: low effective sample size -> a 2D FES will be noisy. Run longer before trusting it.")
 
     xc, yc, F, F_smooth = fes_2d(x, y, w)
     XX, YY = np.meshgrid(xc, yc)
@@ -89,10 +90,11 @@ def run(cv_x="d_active", cv_y="wat"):
     # --- 3D landscape (the 'topology' view) ---
     fig = plt.figure(figsize=(11, 8))
     ax = fig.add_subplot(111, projection="3d")
-    ax.plot_surface(XX, YY, F_smooth, cmap="turbo", edgecolor="k", lw=0.15,
-                    rstride=1, cstride=1, antialiased=True)
+    ax.plot_surface(XX, YY, F_smooth, cmap="turbo", edgecolor="k", lw=0.15, rstride=1, cstride=1, antialiased=True)
     ax.contour(XX, YY, F_smooth, zdir="z", offset=0, levels=14, cmap="turbo", alpha=0.6)
-    ax.set_xlabel(xlabel); ax.set_ylabel(ylabel); ax.set_zlabel("Free energy (kJ/mol)")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_zlabel("Free energy (kJ/mol)")
     ax.set_title(f"OPES free-energy landscape — {config.PROTEIN_NAME}")
     ax.view_init(elev=38, azim=-60)
     fig.savefig(out / f"{config.PROTEIN_NAME}_fes_landscape.png", dpi=200, bbox_inches="tight")
@@ -102,7 +104,8 @@ def run(cv_x="d_active", cv_y="wat"):
     fig, ax = plt.subplots(figsize=(8, 6))
     pc = ax.contourf(xc, yc, F, levels=25, cmap="turbo")
     fig.colorbar(pc, label="Free energy (kJ/mol)")
-    ax.set_xlabel(xlabel); ax.set_ylabel(ylabel)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
     ax.set_title(f"2D FES — {config.PROTEIN_NAME}")
     fig.savefig(out / f"{config.PROTEIN_NAME}_fes_2d.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -111,7 +114,9 @@ def run(cv_x="d_active", cv_y="wat"):
     cx, f1 = fes_1d(x, w)
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(cx, f1, lw=2.5)
-    ax.set_xlabel(xlabel); ax.set_ylabel("Free energy (kJ/mol)"); ax.grid(True)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Free energy (kJ/mol)")
+    ax.grid(True)
     ax.set_title(f"1D FES along {cv_x} — {config.PROTEIN_NAME}")
     fig.savefig(out / f"{config.PROTEIN_NAME}_fes_1d.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
