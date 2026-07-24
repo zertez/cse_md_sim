@@ -11,7 +11,10 @@ requires = ["hatchling"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["osx-arm64", "linux-64"]
+platforms = [
+  "osx-arm64",
+  { platform = "linux-64", cuda = "12.8" }
+]
 
 [tool.pixi.pypi-dependencies]
 cse_md_sim = { path = ".", editable = true }
@@ -49,9 +52,6 @@ pytorch = "*"                    # Mac → MPS (Metal)
 [tool.pixi.target.linux-64.dependencies]
 pytorch-gpu = "*"                # Linux → CUDA
 cuda-version = ">=12.8,<13"
-
-[tool.pixi.system-requirements]
-cuda = "12.8"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
