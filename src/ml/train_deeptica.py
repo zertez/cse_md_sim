@@ -2,8 +2,8 @@
 train_deeptica.py
 
 Train Deep-TICA collective variables on an existing OPES trajectory.
-Lightning-free version (plain PyTorch) so it starts quickly.
-
+Uses mlcolvar's create_timelagged_dataset so both 'weights' and
+'weights_lag' are present (required by DeepTICA.training_step).
 """
 
 import sys
@@ -14,10 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import torch
 import mdtraj as md
-from torch.utils.data import DataLoader, TensorDataset
+import lightning as L
 
 from mlcolvar.cvs import DeepTICA
-
+from mlcolvar.data import DictModule
+from mlcolvar.utils.timelagged import create_timelagged_dataset
 import config
 
 
@@ -36,8 +37,13 @@ def build_descriptors(traj: md.Trajectory) -> np.ndarray:
     return distances.astype(np.float32)
 
 
-def train_deeptica(lag: int = 10, n_cvs: int = 2, max_epochs: int = 80, batch_size: int = 256):
-    print("=== Deep-TICA training (PyTorch only) ===")
+def train_deeptica(
+    lag: int = 10,
+    n_cvs: int = 2,
+    max_epochs: int = 80,
+    batch_size: int = 256,
+):
+    print("=== Deep-TICA training ===")
     output_dir = config.OUTPUT_DIR
     traj_file = output_dir / "enhanced.dcd"
     top_file = output_dir / "equilibrated.pdb"
@@ -56,51 +62,34 @@ def train_deeptica(lag: int = 10, n_cvs: int = 2, max_epochs: int = 80, batch_si
     X = build_descriptors(traj)
     print(f"  Shape: {X.shape}")
 
-    # Time-lagged pairs
-    X_t = torch.from_numpy(X[:-lag])
-    X_lag = torch.from_numpy(X[lag:])
+    # Official helper produces a DictDataset with the four keys DeepTICA expects:
+    #   'data', 'data_lag', 'weights', 'weights_lag'
+    print(f"Creating time-lagged dataset (lag={lag})...")
+    dataset = create_timelagged_dataset(X, lag_time=lag)
+    print(f"  Dataset keys: {list(dataset.keys)}")  # <-- fixed (no parentheses)
+    print(f"  Samples: {len(dataset)}")
 
-    dataset = TensorDataset(X_t, X_lag)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    datamodule = DictModule(dataset, lengths=[0.8, 0.2], batch_size=batch_size)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
     model = DeepTICA(
         layers=[X.shape[1], 64, 32, n_cvs],
         options={"nn": {"activation": "tanh"}},
-    ).to(device)
+    )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    trainer = L.Trainer(
+        max_epochs=max_epochs,
+        accelerator="gpu" if device == "cuda" else "cpu",
+        devices=1,
+        enable_checkpointing=False,
+        logger=False,
+        enable_progress_bar=True,
+    )
 
     print(f"Training for {max_epochs} epochs...")
-    model.train()
-    for epoch in range(1, max_epochs + 1):
-        total_loss = 0.0
-        n_batches = 0
-
-        for data, data_lag in loader:
-            data = data.to(device)
-            data_lag = data_lag.to(device)
-
-            optimizer.zero_grad()
-
-            # Forward pass
-            cv = model(data)
-            cv_lag = model(data_lag)
-
-            # Deep-TICA loss (simplified but works)
-            loss = model.loss_function(cv, cv_lag)
-
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-            n_batches += 1
-
-        avg_loss = total_loss / max(n_batches, 1)
-        if epoch % 10 == 0 or epoch == 1:
-            print(f"  Epoch {epoch:3d}/{max_epochs}  loss = {avg_loss:.6f}")
+    trainer.fit(model, datamodule)
 
     # Save
     model_dir = output_dir / "deeptica"
@@ -111,6 +100,7 @@ def train_deeptica(lag: int = 10, n_cvs: int = 2, max_epochs: int = 80, batch_si
 
     # Project full trajectory
     model.eval()
+    model.to(device)
     with torch.no_grad():
         cvs = model(torch.from_numpy(X).to(device)).cpu().numpy()
     np.save(model_dir / "projected_cvs.npy", cvs)

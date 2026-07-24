@@ -1,6 +1,6 @@
 [project]
 authors = [{name = "zertez", email = "marcus.d.figenschou@protonmail.com"}]
-dependencies = ["mlcolvar>=1.2.2,<2"]
+dependencies = ["mlcolvar>=1.2.2,<2", "modal>=1.5.3,<2"]
 name = "cse_md_sim"
 requires-python = ">= 3.11"
 version = "0.1.0"
@@ -12,15 +12,12 @@ requires = ["hatchling"]
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = [
-  { platform = "linux-64", cuda = "13.0" }
+  "osx-arm64",
+  { platform = "linux-64", cuda = "12.8" }
 ]
 
-[tool.pixi.pypi-dependencies]
-cse_md_sim = { path = ".", editable = true }
-
-[tool.pixi.tasks]
-
 [tool.pixi.dependencies]
+# Common packages that work on both
 openmm = ">=8.4,<8.5"
 pdbfixer = ">=1.12,<2"
 mdtraj = ">=1.11.1,<2"
@@ -42,7 +39,13 @@ eigen = ">=5.0.1,<6"
 fftw = ">=3.3.11,<4"
 gsl = ">=2.7,<3"
 pkg-config = ">=0.29.2,<0.30"
-pytorch-gpu = "*"
+
+# Platform-specific
+[tool.pixi.target.osx-arm64.dependencies]
+pytorch = "*"                    # Mac → MPS
+
+[tool.pixi.target.linux-64.dependencies]
+pytorch-gpu = "*"                # Linux → CUDA
 cuda-version = ">=12.8,<13"
 
 [tool.hatch.build.targets.wheel]
