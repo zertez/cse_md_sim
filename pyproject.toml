@@ -1,6 +1,6 @@
 [project]
 authors = [{name = "zertez", email = "marcus.d.figenschou@protonmail.com"}]
-dependencies = ["mlcolvar>=1.2.2,<2", "torch"]
+dependencies = ["mlcolvar>=1.2.2,<2"]
 name = "cse_md_sim"
 requires-python = ">= 3.11"
 version = "0.1.0"
@@ -19,6 +19,7 @@ cse_md_sim = { path = ".", editable = true }
 [tool.pixi.tasks]
 
 [tool.pixi.dependencies]
+pytorch-gpu = "*"
 openmm = ">=8.4,<8.5"
 pdbfixer = ">=1.12,<2"
 mdtraj = ">=1.11.1,<2"
