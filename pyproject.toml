@@ -1,6 +1,6 @@
 [project]
 authors = [{name = "zertez", email = "marcus.d.figenschou@protonmail.com"}]
-dependencies = []
+dependencies = ["mlcolvar>=1.2.2,<2", "torch"]
 name = "cse_md_sim"
 requires-python = ">= 3.11"
 version = "0.1.0"
