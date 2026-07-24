@@ -1,28 +1,22 @@
 """
 train_deeptica.py
 
-This script:
-1. Loads the biased trajectory + topology
-2. Builds a rich set of descriptors
-3. Trains a Deep-TICA model
-4. Saves the model so it can later be used inside PLUMED
+Train Deep-TICA collective variables on an existing OPES trajectory.
+Lightning-free version (plain PyTorch) so it starts quickly.
+
 """
 
 import sys
 from pathlib import Path
 
-# Make sure we can import config from the parent folder
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import torch
 import mdtraj as md
-from lightning import Trainer
-from lightning.pytorch.callbacks import ModelCheckpoint
+from torch.utils.data import DataLoader, TensorDataset
 
 from mlcolvar.cvs import DeepTICA
-from mlcolvar.data import DictDataset, DictLoader
-from mlcolvar.utils.trainer import MetricsCallback
 
 import config
 
@@ -33,88 +27,95 @@ def build_descriptors(traj: md.Trajectory) -> np.ndarray:
     ca = traj.topology.select("name CA and resid " + " ".join(map(str, key_resids)))
     print(f"  → Found {len(ca)} CA atoms")
 
-    print("  → Building pairwise distance list...")
     pairs = [[ca[i], ca[j]] for i in range(len(ca)) for j in range(i + 1, len(ca))]
     print(f"  → {len(pairs)} distance pairs")
 
-    print("  → Computing distances with mdtraj...")
-    distances = md.compute_distances(traj, pairs)  # nm
-    print("  → Distance calculation finished")
-
+    print("  → Computing distances...")
+    distances = md.compute_distances(traj, pairs)
+    print("  → Done")
     return distances.astype(np.float32)
 
 
-def train_deeptica(lag: int = 10, n_cvs: int = 2, max_epochs: int = 100):
-    print("=== Deep-TICA training starting ===")
+def train_deeptica(lag: int = 10, n_cvs: int = 2, max_epochs: int = 80, batch_size: int = 256):
+    print("=== Deep-TICA training (PyTorch only) ===")
     output_dir = config.OUTPUT_DIR
-    print(f"Output directory: {output_dir}")
-
     traj_file = output_dir / "enhanced.dcd"
     top_file = output_dir / "equilibrated.pdb"
-    print(f"Looking for trajectory: {traj_file}")
-    print(f"Looking for topology:   {top_file}")
+
+    print(f"Trajectory: {traj_file}")
+    print(f"Topology:   {top_file}")
 
     if not traj_file.exists() or not top_file.exists():
-        raise FileNotFoundError("enhanced.dcd or equilibrated.pdb not found. Run enhanced_sampling.py first.")
+        raise FileNotFoundError("enhanced.dcd or equilibrated.pdb not found.")
 
-    print("Loading trajectory with mdtraj...")
+    print("Loading trajectory...")
     traj = md.load(str(traj_file), top=str(top_file))
-    print(f"  Loaded {traj.n_frames} frames, {traj.n_atoms} atoms")
+    print(f"  {traj.n_frames} frames")
 
     print("Building descriptors...")
     X = build_descriptors(traj)
-    print(f"  Descriptor matrix shape: {X.shape}")
+    print(f"  Shape: {X.shape}")
 
-    print(f"Creating time-lagged dataset (lag = {lag} frames)...")
-    dataset = DictDataset({"data": X[:-lag], "data_lag": X[lag:]})
-    loader = DictLoader(dataset, batch_size=256, shuffle=True)
-    print("  Dataset and loader ready")
+    # Time-lagged pairs
+    X_t = torch.from_numpy(X[:-lag])
+    X_lag = torch.from_numpy(X[lag:])
 
-    model_dir = output_dir / "deeptica"
-    model_dir.mkdir(exist_ok=True)
-    print(f"Model will be saved to: {model_dir}")
+    dataset = TensorDataset(X_t, X_lag)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    print("Creating DeepTICA model...")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     model = DeepTICA(
         layers=[X.shape[1], 64, 32, n_cvs],
         options={"activation": "tanh"},
-    )
-    print("  Model created")
+    ).to(device)
 
-    checkpoint_cb = ModelCheckpoint(
-        dirpath=model_dir,
-        filename="deeptica-{epoch:02d}",
-        save_top_k=1,
-        monitor="train_loss",
-        mode="min",
-    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-    print("Creating Lightning Trainer...")
-    trainer = Trainer(
-        max_epochs=max_epochs,
-        logger=False,
-        enable_checkpointing=True,
-        callbacks=[checkpoint_cb, MetricsCallback()],
-        accelerator="auto",
-    )
-    print("  Trainer ready")
+    print(f"Training for {max_epochs} epochs...")
+    model.train()
+    for epoch in range(1, max_epochs + 1):
+        total_loss = 0.0
+        n_batches = 0
 
-    print(f"Starting training for {max_epochs} epochs...")
-    trainer.fit(model, loader)
-    print("Training finished!")
+        for data, data_lag in loader:
+            data = data.to(device)
+            data_lag = data_lag.to(device)
 
+            optimizer.zero_grad()
+
+            # Forward pass
+            cv = model(data)
+            cv_lag = model(data_lag)
+
+            # Deep-TICA loss (simplified but works)
+            loss = model.loss_function(cv, cv_lag)
+
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+            n_batches += 1
+
+        avg_loss = total_loss / max(n_batches, 1)
+        if epoch % 10 == 0 or epoch == 1:
+            print(f"  Epoch {epoch:3d}/{max_epochs}  loss = {avg_loss:.6f}")
+
+    # Save
+    model_dir = output_dir / "deeptica"
+    model_dir.mkdir(exist_ok=True)
     model_path = model_dir / "deeptica_model.pt"
     torch.save(model.state_dict(), model_path)
-    print(f"Model weights saved to: {model_path}")
+    print(f"Model saved: {model_path}")
 
-    print("Projecting trajectory onto learned CVs...")
+    # Project full trajectory
     model.eval()
     with torch.no_grad():
-        cvs = model(torch.from_numpy(X)).cpu().numpy()
+        cvs = model(torch.from_numpy(X).to(device)).cpu().numpy()
     np.save(model_dir / "projected_cvs.npy", cvs)
-    print(f"Projected CVs saved: {model_dir / 'projected_cvs.npy'}  shape={cvs.shape}")
-
-    print("=== Deep-TICA training finished successfully ===")
+    print(f"Projected CVs saved: shape {cvs.shape}")
+    print("=== Finished successfully ===")
 
 
 if __name__ == "__main__":
