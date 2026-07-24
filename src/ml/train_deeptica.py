@@ -1,8 +1,5 @@
 """
 train_deeptica.py
------------------
-Stage C: Learn better collective variables with Deep-TICA
-from an existing OPES trajectory.
 
 This script:
 1. Loads the biased trajectory + topology
@@ -15,22 +12,21 @@ from pathlib import Path
 import numpy as np
 import torch
 import mdtraj as md
+from lightning import Trainer
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from mlcolvar.cvs import DeepTICA
 from mlcolvar.data import DictDataset, DictLoader
 from mlcolvar.utils.trainer import MetricsCallback
-from mlcolvar.utils.io import create_dataset_from_files  # optional helper
-from lightning import Trainer
-from lightning.pytorch.callbacks import ModelCheckpoint
 
-import config
+from src import config
 
 
 def build_descriptors(traj: md.Trajectory) -> np.ndarray:
     """Return a (n_frames, n_features) array of descriptors.
 
-    Start with a modest set of Cα-Cα distances around the active site.
-    This list can be expanded once the pipeline is working.
+    Start with a modest set of CA–CA distances around the active site.
+    Expand this list once the pipeline is working.
     """
     # Lysozyme catalytic residues + a few neighbours (adjust as needed)
     key_resids = [35, 52, 62, 63, 101, 108, 109]
