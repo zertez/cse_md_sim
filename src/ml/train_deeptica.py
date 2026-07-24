@@ -68,7 +68,7 @@ def train_deeptica(lag: int = 10, n_cvs: int = 2, max_epochs: int = 80, batch_si
 
     model = DeepTICA(
         layers=[X.shape[1], 64, 32, n_cvs],
-        options={"activation": "tanh"},
+        options={"nn": {"activation": "tanh"}},
     ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
